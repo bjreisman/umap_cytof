@@ -1,0 +1,17 @@
+base
+tidyverse
+ggplot2
+tibble
+tidyr
+readr
+purrr
+dplyr
+stringr
+forcats
+scico
+scales
+Matrix
+uwot
+seriation
+dbscan
+bindrcpp

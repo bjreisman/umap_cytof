@@ -1,0 +1,149 @@
+---
+title: "UMAP Applied to Mass-Cytometry Data"
+author: "Benjamin Reisman"
+date: "October 5, 2018"
+output: github_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, dev = "png", cache = TRUE, dpi = 300,
+                      fig.path = "figure/")
+
+library(tidyverse)
+library(scico)
+library(scales)
+library(uwot)
+library(seriation)
+library(scico)
+library(dbscan)
+
+
+#this is the asinh transform I used for the scales
+asinh_trans = function(cofactor) {
+  transform =   function(x,...) {
+    asinh(x/cofactor)
+  }
+  inverse = function(x,...) {
+    sinh(x)*cofactor
+  }
+  breaks = function(x) {
+    minor.ticks <- (rep(2:9, 6))*(rep(10^(0:5), each = 8))
+    major.ticks <- 10^(2:6)
+    breaks <-(c(0, major.ticks,- major.ticks))
+    breaks[order(breaks)]
+  }
+  scales::trans_new("asinh", transform, inverse, breaks)
+}
+```
+
+## Intro
+
+This is a quick example of applying [UMAP](https://arxiv.org/abs/1802.03426) (as implmented by jlmelville in the [uwot](https://github.com/jlmelville/uwot) package) to mass cytometry data. This is a dataset consisting of healthy bone marrow and leukemic bone marrow profiled using mass cytometry (CYTOF), as decribed in: [Diggins KE, Ferrell PB, & Irish JM (2015) "Methods for discovery and characterization of cell subsets in high dimensional mass cytometry data." Methods 82:55-63.](https://www.sciencedirect.com/science/article/pii/S1046202315001991?via%3Dihub)
+
+```{r read in data}
+
+## Data avaliable here: https://flowrepository.org/id/FR-FCM-ZZKZ
+## Dataset = AML_normal_viSNEgates_concat.fcs
+
+mydata <- read_tsv("AML_normal_viSNEgates_concat.fcs_raw_events.txt", 
+                     skip = 1)
+```
+
+
+Here's the t-SNE analysis from the original paper:
+
+```{r plotting the original tSNE analysis}
+mydata %>%
+ggplot(aes(x= tSNE1, y = tSNE2)) +
+  geom_bin2d(bins = 256) + 
+  scale_fill_viridis_c(option = "A", trans = "sqrt") + 
+  scale_x_continuous(expand = c(0.1,0)) + 
+  scale_y_continuous(expand = c(0.1,0)) + 
+  coord_fixed() +
+  labs(caption = "From KE Diggins, PB Ferrell,JM Irish,
+       Methods 2015, 82, 55-63.\nFlow Repository: FR-FCM-ZZKZ") + 
+  theme_minimal()
+
+```
+
+##Data Transformation
+This next step is key. Before applying umap, or any dimensionality reduction technique, the data must be transformed with a log like transformation. For Flow cytometry, we usually use an arcsinh transformation with a cofactor of 150. The arcsinh transformation approximates a ln(x) transformation for large values, but become linear near 0. It's also valid for negative numbers which is good for flow cytometry data where compensation can result in values below 0. The cofactor controls where the transformation transitions from linear to log like. If the cofactor is set in approriately, it can result in a the false appearnce of a bimodal distrubtion around 0 (cofactor too low), or it can compress the area around zero excessively and eliminate real signal (cofactor set too high). For more information, see this page on ["Scales and Transformation"](https://my.vanderbilt.edu/irishlab/protocols/scales-and-transformation/)
+
+We'll set the cofactor to 5 here. I'll also leave the data untransformed to comapre what happens when this set is ommitted.  
+
+Another brief note is that in the original analysis, a subset of the channels (features) were used to generate the tSNE map. Those channels have a '(V)' in their name, so we'll select the same channels for the UMAP analyis as well. 
+```{r data cleaning}
+
+
+mydata.mapping <- mydata %>%
+  select(contains('(V)')) %>% #select mapping columns
+  mutate_all(function(x) asinh(x/5)) #transform them using asinh trans
+
+
+mydata.mapping.untransformed <- mydata %>%
+  select(contains('(V)'))
+```
+
+Now we'll run UMAP on both the transformed and untransformed data, as well as tUMAP. My understanding of tUMAP is that it sets two of the hyperparameters to 1, which apporximates the Cauchy distribution used in tSNE. This speeds up the optimization and also has the side effect of spreading out the clusters a bit more than a comparable umap with the same `n_neighbors` and `min_dist` parameters. For more about tUMAP see the [documentation for uwot](https://github.com/jlmelville/uwot).
+
+
+```{r umaping}
+myumap <- umap(mydata.mapping, ret_model = TRUE)
+mytumap <- tumap(mydata.mapping, ret_model = TRUE)
+myumap.untransformed <- umap(mydata.mapping.untransformed, ret_model = TRUE)
+
+```
+
+
+```{r plotting umap}
+as_tibble(myumap$embedding) %>%
+ggplot(aes(x= V1, y = V2)) +
+  geom_bin2d(bins = 256) + 
+  scale_fill_viridis_c(option = "A", trans = "sqrt") + 
+  scale_x_continuous(expand = c(0.1,0)) + 
+  scale_y_continuous(expand = c(0.1,0)) +
+  labs(x = "UMAP-1", 
+       y = "UMAP-2", 
+       title = "UMAP on asinh transformed data") + 
+  coord_fixed() +
+  labs(caption = "From KE Diggins, PB Ferrell, JM Irish,
+       Methods 2015, 82, 55-63.\nFlow Repository: FR-FCM-ZZKZ") + 
+  theme_minimal()
+```
+
+
+```{r plotting tumap}
+as_tibble(mytumap$embedding) %>%
+ggplot(aes(x= V1, y = V2)) +
+  geom_bin2d(bins = 256) + 
+  scale_fill_viridis_c(option = "A", trans = "sqrt") + 
+  scale_x_continuous(expand = c(0.1,0)) + 
+  scale_y_continuous(expand = c(0.1,0)) +
+  labs(x = "tUMAP-1", 
+       y = "tUMAP-2", 
+       title = "tUMAP on asinh transformed data") + 
+  coord_fixed() +
+  labs(caption = "From KE Diggins, PB Ferrell, JM Irish,
+       Methods 2015, 82, 55-63.\nFlow Repository: FR-FCM-ZZKZ") + 
+  theme_minimal()
+```
+
+
+```{r plotting umap untransformed}
+as_tibble(myumap.untransformed$embedding) %>%
+ggplot(aes(x= V1, y = V2)) +
+  geom_bin2d(bins = 256) + 
+  scale_fill_viridis_c(option = "A", trans = "sqrt") + 
+  scale_x_continuous(expand = c(0.1,0)) + 
+  scale_y_continuous(expand = c(0.1,0)) +
+  labs(x = "UMAP-1", 
+       y = "UMAP-2", 
+       title = "UMAP on untransformed data") + 
+  coord_fixed() +
+  labs(caption = "From KE Diggins, PB Ferrell, JM Irish,
+       Methods 2015, 82, 55-63.\nFlow Repository: FR-FCM-ZZKZ") + 
+  theme_minimal()
+```
+
