@@ -8,42 +8,18 @@ editor_options:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, dev = "png", cache = TRUE, dpi = 300,
+knitr::opts_chunk$set(echo = TRUE, dev = "png", cache = TRUE, dpi = 150,
                       fig.path = "figure/")
 
-library(tidyverse)
-library(scico)
-library(scales)
-library(uwot)
-library(seriation)
-library(scico)
-library(dbscan)
-
-
-#this is the asinh transform I used for the scales
-asinh_trans = function(cofactor) {
-  transform =   function(x,...) {
-    asinh(x/cofactor)
-  }
-  inverse = function(x,...) {
-    sinh(x)*cofactor
-  }
-  breaks = function(x) {
-    minor.ticks <- (rep(2:9, 6))*(rep(10^(0:5), each = 8))
-    major.ticks <- 10^(2:6)
-    breaks <-(c(0, major.ticks,- major.ticks))
-    breaks[order(breaks)]
-  }
-  scales::trans_new("asinh", transform, inverse, breaks)
-}
 ```
 
 ## Intro
 
-This is a quick example of applying [UMAP](https://arxiv.org/abs/1802.03426) (as implmented by jlmelville in the [uwot](https://github.com/jlmelville/uwot) package) to mass cytometry data. This is a dataset consisting of healthy bone marrow and leukemic bone marrow profiled using mass cytometry (CYTOF), as decribed in: [Diggins KE, Ferrell PB, & Irish JM (2015) "Methods for discovery and characterization of cell subsets in high dimensional mass cytometry data." Methods 82:55-63.](https://www.sciencedirect.com/science/article/pii/S1046202315001991?via%3Dihub)
+This is a quick example of applying Leland McInnes' [UMAP](https://arxiv.org/abs/1802.03426) (as implemented by jlmelville in the [uwot](https://github.com/jlmelville/uwot) package) to mass cytometry data. This is a dataset consisting of healthy bone marrow and leukemic bone marrow profiled using mass cytometry (CYTOF), as described in: [Diggins KE, Ferrell PB, & Irish JM (2015) "Methods for discovery and characterization of cell subsets in high dimensional mass cytometry data." Methods 82:55-63.](https://www.sciencedirect.com/science/article/pii/S1046202315001991?via%3Dihub)
 
 ```{r read in data}
-
+library(tidyverse)
+library(uwot)
 ## Data avaliable here: https://flowrepository.org/id/FR-FCM-ZZKZ
 ## Dataset = AML_normal_viSNEgates_concat.fcs
 
@@ -62,18 +38,18 @@ ggplot(aes(x= tSNE1, y = tSNE2)) +
   scale_x_continuous(expand = c(0.1,0)) + 
   scale_y_continuous(expand = c(0.1,0)) + 
   coord_fixed() +
-  labs(caption = "From KE Diggins, PB Ferrell,JM Irish,
-       Methods 2015, 82, 55-63.\nFlow Repository: FR-FCM-ZZKZ") + 
+  labs(caption="From KE Diggins, PB Ferrell, JM Irish, Methods 2015, 82, 55-63.
+       Flow Repository: FR-FCM-ZZKZ") + 
   theme_minimal()
 
 ```
 
 ##Data Transformation
-This next step is key. Before applying umap, or any dimensionality reduction technique, the data must be transformed with a log like transformation. For Flow cytometry, we usually use an arcsinh transformation with a cofactor of 150. The arcsinh transformation approximates a ln(x) transformation for large values, but become linear near 0. It's also valid for negative numbers which is good for flow cytometry data where compensation can result in values below 0. The cofactor controls where the transformation transitions from linear to log like. If the cofactor is set in approriately, it can result in a the false appearnce of a bimodal distrubtion around 0 (cofactor too low), or it can compress the area around zero excessively and eliminate real signal (cofactor set too high). For more information, see this page on ["Scales and Transformation"](https://my.vanderbilt.edu/irishlab/protocols/scales-and-transformation/)
+This next step is key. Before applying UMAP, or any dimensionality reduction technique, the data must be transformed with a log like transformation which serves as a variance stabilizing transformation. For Flow cytometry, we usually use an arcsinh transformation with a cofactor of 150. The arcsinh transformation approximates a ln(x) transformation for large values, but become linear near 0. It's also valid for negative numbers which is good for flow cytometry data where compensation can result in values below 0. The cofactor controls where the transformation transitions from linear to log like. If the cofactor is set in appropriately, it can result in a the false appearance of a bimodal distribution around 0 (cofactor too low), or it can compress the area around zero excessively and eliminate real signal (cofactor set too high). For more information, see this page on ["Scales and Transformation"](https://my.vanderbilt.edu/irishlab/protocols/scales-and-transformation/), as well as the documentation for Ariful Azad's [flowVS](https://bioconductor.org/packages/release/bioc/html/flowVS.html) package.
 
-We'll set the cofactor to 5 here. I'll also leave the data untransformed to comapre what happens when this set is ommitted.  
+We'll set the cofactor to 5 here. I'll also leave the data untransformed to compare what happens when this set is omitted.  
 
-Another brief note is that in the original analysis, a subset of the channels (features) were used to generate the tSNE map. Those channels have a '(V)' in their name, so we'll select the same channels for the UMAP analyis as well. 
+Another brief note is that in the original analysis, a subset of the channels (features) were used to generate the tSNE map. Those channels have a '(V)' in their name, so we'll select the same channels for the UMAP analysis as well. 
 ```{r data cleaning}
 
 
@@ -86,7 +62,9 @@ mydata.mapping.untransformed <- mydata %>%
   select(contains('(V)'))
 ```
 
-Now we'll run UMAP on both the transformed and untransformed data, as well as tUMAP. My understanding of tUMAP is that it sets two of the hyperparameters to 1, which apporximates the Cauchy distribution used in tSNE. This speeds up the optimization and also has the side effect of spreading out the clusters a bit more than a comparable umap with the same `n_neighbors` and `min_dist` parameters. For more about tUMAP see the [documentation for uwot](https://github.com/jlmelville/uwot).
+## Running UMAP
+
+Now we'll run UMAP on both the transformed and untransformed data, as well as tUMAP. My understanding of tUMAP is that it sets two of the hyperparameters to 1, which approximates the Cauchy distribution used in tSNE. This speeds up the optimization and also has the side effect of spreading out the clusters a bit more than a comparable UMAP with the same `n_neighbors` and `min_dist` parameters. For more about tUMAP see the [documentation for uwot](https://github.com/jlmelville/uwot).
 
 
 ```{r umaping}
@@ -95,7 +73,6 @@ mytumap <- tumap(mydata.mapping, ret_model = TRUE)
 myumap.untransformed <- umap(mydata.mapping.untransformed, ret_model = TRUE)
 
 ```
-
 
 ```{r plotting umap}
 as_tibble(myumap$embedding) %>%
@@ -108,8 +85,8 @@ ggplot(aes(x= V1, y = V2)) +
        y = "UMAP-2", 
        title = "UMAP on asinh transformed data") + 
   coord_fixed() +
-  labs(caption = "From KE Diggins, PB Ferrell, JM Irish,
-       Methods 2015, 82, 55-63.\nFlow Repository: FR-FCM-ZZKZ") + 
+  labs(caption="From KE Diggins, PB Ferrell, JM Irish, Methods 2015, 82, 55-63.
+       Flow Repository: FR-FCM-ZZKZ") + 
   theme_minimal()
 ```
 
@@ -125,8 +102,8 @@ ggplot(aes(x= V1, y = V2)) +
        y = "tUMAP-2", 
        title = "tUMAP on asinh transformed data") + 
   coord_fixed() +
-  labs(caption = "From KE Diggins, PB Ferrell, JM Irish,
-       Methods 2015, 82, 55-63.\nFlow Repository: FR-FCM-ZZKZ") + 
+  labs(caption="From KE Diggins, PB Ferrell, JM Irish, Methods 2015, 82, 55-63.
+       Flow Repository: FR-FCM-ZZKZ") + 
   theme_minimal()
 ```
 
@@ -142,8 +119,8 @@ ggplot(aes(x= V1, y = V2)) +
        y = "UMAP-2", 
        title = "UMAP on untransformed data") + 
   coord_fixed() +
-  labs(caption = "From KE Diggins, PB Ferrell, JM Irish,
-       Methods 2015, 82, 55-63.\nFlow Repository: FR-FCM-ZZKZ") + 
+  labs(caption="From KE Diggins, PB Ferrell, JM Irish, Methods 2015, 82, 55-63.
+       Flow Repository: FR-FCM-ZZKZ") + 
   theme_minimal()
 ```
 
